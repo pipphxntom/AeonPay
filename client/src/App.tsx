@@ -12,6 +12,8 @@ import Swap from "@/pages/Swap";
 import Me from "@/pages/Me";
 import Privacy from "@/pages/Privacy";
 import Login from "@/pages/Login";
+import KycUpgrade from "@/pages/KycUpgrade";
+import Reconciliation from "@/pages/Reconciliation";
 import NotFound from "@/pages/not-found";
 
 import AppShell from "@/components/AppShell";
@@ -31,6 +33,8 @@ function AuthenticatedApp() {
         <Route path="/swap" component={Swap} />
         <Route path="/privacy" component={Privacy} />
         <Route path="/me" component={Me} />
+        <Route path="/kyc-upgrade" component={KycUpgrade} />
+        <Route path="/reconciliation" component={Reconciliation} />
         <Route component={NotFound} />
       </Switch>
       

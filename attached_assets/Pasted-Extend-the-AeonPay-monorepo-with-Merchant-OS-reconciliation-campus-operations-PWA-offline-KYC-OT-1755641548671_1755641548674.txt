@@ -1,0 +1,113 @@
+Extend the AeonPay monorepo with Merchant OS, reconciliation, campus operations, PWA/offline, KYC/OTP, feature flags, and A/B experimentation while keeping the Gen-Z UI (SF Pro/system font, gradient mesh, glass cards, spring motion, bottom nav). Keep it Replit-friendly (SQLite, no paid services). Deliver code, seeds, tests, and a README section for each feature.
+
+1) Merchant OS (separate SPA inside monorepo)
+
+Create /merchant-os (React + Vite + Tailwind + Zustand) with routes:
+
+/login (email/phone + one-time code → call backend POST /merchant/auth/mock_login)
+
+/dashboard (today’s redemptions, vouchers/mandates redeemed, refundless totals, “Cap Deals” performance)
+
+/settlements (T-0/T-1 net positions, export CSV)
+
+/offers (create/edit Cap Deal: label, cap_price_per_head, time window, days of week, active toggle)
+
+Add backend merchant endpoints:
+
+POST /merchant/auth/mock_login → JWT (separate merchant audience/claims)
+
+GET /merchant/summary?from=&to=, GET /merchant/redemptions?day=, POST /merchant/offers, PATCH /merchant/offers/:id, GET /merchant/settlement_report?day=
+
+Seed 10 merchants per campus with 1 default Cap Deal (e.g., “₹299/head canteen combo 5–9pm”).
+
+UI interactions: clicking a redemption opens a RightDrawer with voucher/mandate IDs, plan id, per-head split, and a “Flag” button (logs merchant_flags).
+
+2) Reconciliation & Ledger Hardening
+
+Switch SQLite to WAL mode; add ops/recon.py and a FastAPI background job GET /ops/recon/daily:
+
+Compute: total redeemed vouchers + executed mandates vs. sum(ledger credits to merchant liability) and sum(ledger debits from users)
+
+Emit recon_reports(day, ok:boolean, deltas JSON, created_at)
+
+Add idempotent state machine for vouchers.state (reserved→redeemed→closed) and mandates.state (created→executed→closed).
+
+Add errors.md with canonical error codes (e.g., AEON_VOUCHER_EXPIRED, AEON_MANDATE_WINDOW_CLOSED, AEON_GUARDRAIL_BLOCK).
+
+Tests: recon delta=0 in happy path; double-submit confirm is ignored (idempotency).
+
+3) Campus Ops Console
+
+Create /backend/routers/campus.py:
+
+GET /campus/heatmap (top merchants by redemptions last 7 days)
+
+GET /campus/capdeal_uplift (conversion delta: cap-deal vs. baseline)
+
+GET /campus/leakage (scanned merchants where user abandoned before pay)
+
+Create /frontend/src/pages/AdminMetrics.tsx (gated by is_admin in JWT) with charts (simple SVG bars) for the above.
+
+Clicking a merchant bar opens Merchant Profile Modal (offers, redemption curve, complaints).
+
+4) PWA + Offline
+
+Turn /frontend into a PWA: service worker via vite-plugin-pwa, install prompt, app icon set (use your logo), offline shell for routes /, /pay, /plans, /swap; cache first for static, network first for data; fallback page.
+
+Offline behaviors:
+
+Scan & Pay: allow entering VPA manually; queue payments/intent as an outbox (IndexedDB) if offline, retry on regain; mark intent “pending-sync”.
+
+ReserveCapsSheet: show cached merchants; if offline, block mandate creation but allow voucher pre-mint mock when in dev mode (flag).
+
+Add performance budget: first load <200KB JS (split routes, lazy sheets).
+
+5) KYC/OTP & Limits
+
+Add KYC pages in Me: KYC Basic (name, DOB, self-declared), KYC Plus (upload doc placeholder; in dev just mock), show daily/monthly limits (e.g., Swap ≤₹2,000/day for Basic).
+
+Add POST /auth/otp/request (mock SMS), POST /auth/otp/verify; wire to upgrade session (set kyc_level).
+
+Limits enforced in policy engine: swap_limit_remaining endpoint; on overflow return AEON_SWAP_LIMIT.
+
+6) Feature Flags & Experimentation
+
+Add feature_flags table and GET /config/bootstrap returning flags and experiment assignments (simple hashing by user id).
+
+Frontend bootstraps flags at app start; gate Mandates vs Vouchers default tab and Cap Deals banners.
+
+A/B: augment the Nudge bandits with flag keys; log exposure and outcome.
+
+7) Guardrail UX v2
+
+GuardrailDialog shows 3 tabs if over cap: Top-Up (Lite) chips ₹50/₹100/₹200, Trim suggestions (reduce quantity/add-on), Proceed.
+
+If merchant has a Cap Deal, show “Switch to Cap Deal (₹299/head)” quick action that changes amount and merchant_id accordingly.
+
+8) Deep Links & App Links
+
+Implement deep links:
+
+aeonpay://plan/:id/reserve opens ReserveCapsSheet
+
+aeonpay://pay?merchant_id=…&amount=… opens PaymentIntentSheet
+
+aeonpay://swap?mode=cash_to_upi&amount=… opens Swap flow
+
+Add a deep link handler in AppShell.
+
+9) Analytics Event Schema
+
+Define events.md and backend POST /analytics/events storing (user_id, event, props JSON, ts).
+
+Standardize: plan_created, vouchers_minted, mandates_created, scan_open, intent_created, guardrail_show, guardrail_topup, guardrail_trim, guardrail_proceed, redeem_success, swap_created, swap_confirmed, merchant_capdeal_view, merchant_capdeal_redeem.
+
+Ship a /admin/analytics page with simple queries and charts.
+
+10) UI polish
+
+Keep SF Pro/system font; rounded-2xl, glass cards, springy micro-motion, bottom nav; respect prefers-reduced-motion.
+
+Add haptic-like feedback (small scale/opacity pulses) on key actions.
+
+Update README with: Merchant OS, recon job, PWA install, OTP/KYC instructions, feature flag JSON, and a 2-minute demo path (Create Plan → Reserve Caps → Scan & Pay → Over-cap guardrail → Top-up → Success; plus Merchant OS showing the redemption).

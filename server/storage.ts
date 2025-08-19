@@ -1,4 +1,4 @@
-import { type User, type InsertUser, type Plan, type InsertPlan, type Merchant, type Campus, type Voucher, type Mandate, type Transaction, type Swap, type SwapEvent, type Partner, type UpiAtm, type PrivacyEvent, type NudgesArm, type NudgesEvent } from "@shared/schema";
+import { type User, type InsertUser, type Plan, type InsertPlan, type Merchant, type Campus, type Voucher, type Mandate, type Transaction, type Swap, type SwapEvent, type Partner, type UpiAtm, type PrivacyEvent, type NudgesArm, type NudgesEvent, type MerchantOffer, type MerchantRedemption, type Settlement, type FeatureFlag, type KycVerification, type OtpCode, type AnalyticsEvent, type OfflineOutbox, type ReconReport } from "@shared/schema";
 import { randomUUID } from "crypto";
 
 export interface IStorage {
@@ -54,6 +54,48 @@ export interface IStorage {
   createNudgeArm(arm: any): Promise<NudgesArm>;
   recordNudgeEvent(event: any): Promise<NudgesEvent>;
   updateNudgeArmStats(armKey: string, reward: number): Promise<void>;
+
+  // Merchant OS
+  getMerchantOffers(merchantId?: string): Promise<MerchantOffer[]>;
+  createMerchantOffer(offer: any): Promise<MerchantOffer>;
+  updateMerchantOffer(id: string, updates: any): Promise<MerchantOffer | undefined>;
+  getMerchantRedemptions(merchantId?: string): Promise<MerchantRedemption[]>;
+  createMerchantRedemption(redemption: any): Promise<MerchantRedemption>;
+  getSettlements(merchantId?: string): Promise<Settlement[]>;
+  createSettlement(settlement: any): Promise<Settlement>;
+
+  // Reconciliation
+  createReconReport(report: any): Promise<ReconReport>;
+  getReconReports(limit?: number): Promise<ReconReport[]>;
+  getDailyReconStatus(day: string): Promise<ReconReport | undefined>;
+
+  // Feature Flags & Experimentation
+  getFeatureFlags(): Promise<FeatureFlag[]>;
+  createFeatureFlag(flag: any): Promise<FeatureFlag>;
+  updateFeatureFlag(id: string, updates: any): Promise<FeatureFlag | undefined>;
+  isFeatureEnabled(flagKey: string, userId?: string): Promise<boolean>;
+  getExperimentVariant(experimentKey: string, userId: string): Promise<string>;
+
+  // KYC & Limits
+  getKycVerification(userId: string): Promise<KycVerification | undefined>;
+  createKycVerification(kyc: any): Promise<KycVerification>;
+  updateKycVerification(id: string, updates: any): Promise<KycVerification | undefined>;
+  getUserLimits(userId: string): Promise<any[]>;
+  updateUserLimit(userId: string, limitType: string, usage: number): Promise<void>;
+
+  // OTP System
+  createOtpCode(otp: any): Promise<OtpCode>;
+  verifyOtpCode(phone: string, code: string, purpose: string): Promise<boolean>;
+  incrementOtpAttempts(id: string): Promise<void>;
+
+  // Analytics
+  trackAnalyticsEvent(event: any): Promise<AnalyticsEvent>;
+  getAnalyticsEvents(userId?: string, eventName?: string): Promise<AnalyticsEvent[]>;
+
+  // PWA Offline
+  addToOfflineOutbox(item: any): Promise<OfflineOutbox>;
+  getOfflineOutbox(userId: string): Promise<OfflineOutbox[]>;
+  markOfflineItemSynced(id: string): Promise<void>;
 }
 
 export class MemStorage implements IStorage {
@@ -73,6 +115,18 @@ export class MemStorage implements IStorage {
   private privacyEvents: Map<string, PrivacyEvent> = new Map();
   private nudgeArms: Map<string, NudgesArm> = new Map();
   private nudgeEvents: Map<string, NudgesEvent> = new Map();
+  
+  // Extended storage for comprehensive features
+  private merchantOffers: Map<string, MerchantOffer> = new Map();
+  private merchantRedemptions: Map<string, MerchantRedemption> = new Map();
+  private settlements: Map<string, Settlement> = new Map();
+  private reconReports: Map<string, ReconReport> = new Map();
+  private featureFlags: Map<string, FeatureFlag> = new Map();
+  private kycVerifications: Map<string, KycVerification> = new Map();
+  private userLimits: Map<string, any> = new Map();
+  private otpCodes: Map<string, OtpCode> = new Map();
+  private analyticsEvents: Map<string, AnalyticsEvent> = new Map();
+  private offlineOutbox: Map<string, OfflineOutbox> = new Map();
 
   constructor() {
     this.seedData();
@@ -448,6 +502,258 @@ export class MemStorage implements IStorage {
     };
 
     this.nudgeArms.set(armKey, updatedArm);
+  }
+
+  // Merchant OS methods
+  async getMerchantOffers(merchantId?: string): Promise<MerchantOffer[]> {
+    const offers = Array.from(this.merchantOffers.values());
+    return merchantId ? offers.filter(offer => offer.merchant_id === merchantId) : offers;
+  }
+
+  async createMerchantOffer(offer: any): Promise<MerchantOffer> {
+    const id = randomUUID();
+    const offerObj: MerchantOffer = {
+      ...offer,
+      id,
+      created_at: new Date(),
+      updated_at: new Date()
+    };
+    this.merchantOffers.set(id, offerObj);
+    return offerObj;
+  }
+
+  async updateMerchantOffer(id: string, updates: any): Promise<MerchantOffer | undefined> {
+    const offer = this.merchantOffers.get(id);
+    if (!offer) return undefined;
+    const updated = { ...offer, ...updates, updated_at: new Date() };
+    this.merchantOffers.set(id, updated);
+    return updated;
+  }
+
+  async getMerchantRedemptions(merchantId?: string): Promise<MerchantRedemption[]> {
+    const redemptions = Array.from(this.merchantRedemptions.values());
+    return merchantId ? redemptions.filter(r => r.merchant_id === merchantId) : redemptions;
+  }
+
+  async createMerchantRedemption(redemption: any): Promise<MerchantRedemption> {
+    const id = randomUUID();
+    const redemptionObj: MerchantRedemption = {
+      ...redemption,
+      id,
+      created_at: new Date(),
+      redeemed_at: new Date()
+    };
+    this.merchantRedemptions.set(id, redemptionObj);
+    return redemptionObj;
+  }
+
+  async getSettlements(merchantId?: string): Promise<Settlement[]> {
+    const settlements = Array.from(this.settlements.values());
+    return merchantId ? settlements.filter(s => s.merchant_id === merchantId) : settlements;
+  }
+
+  async createSettlement(settlement: any): Promise<Settlement> {
+    const id = randomUUID();
+    const settlementObj: Settlement = {
+      ...settlement,
+      id,
+      created_at: new Date()
+    };
+    this.settlements.set(id, settlementObj);
+    return settlementObj;
+  }
+
+  // Reconciliation methods
+  async createReconReport(report: any): Promise<ReconReport> {
+    const id = randomUUID();
+    const reportObj: ReconReport = {
+      ...report,
+      id,
+      created_at: new Date()
+    };
+    this.reconReports.set(id, reportObj);
+    return reportObj;
+  }
+
+  async getReconReports(limit: number = 10): Promise<ReconReport[]> {
+    return Array.from(this.reconReports.values())
+      .sort((a, b) => b.created_at!.getTime() - a.created_at!.getTime())
+      .slice(0, limit);
+  }
+
+  async getDailyReconStatus(day: string): Promise<ReconReport | undefined> {
+    return Array.from(this.reconReports.values()).find(r => r.day === day);
+  }
+
+  // Feature flags & experimentation methods
+  async getFeatureFlags(): Promise<FeatureFlag[]> {
+    return Array.from(this.featureFlags.values());
+  }
+
+  async createFeatureFlag(flag: any): Promise<FeatureFlag> {
+    const id = randomUUID();
+    const flagObj: FeatureFlag = {
+      ...flag,
+      id,
+      created_at: new Date(),
+      updated_at: new Date()
+    };
+    this.featureFlags.set(id, flagObj);
+    return flagObj;
+  }
+
+  async updateFeatureFlag(id: string, updates: any): Promise<FeatureFlag | undefined> {
+    const flag = this.featureFlags.get(id);
+    if (!flag) return undefined;
+    const updated = { ...flag, ...updates, updated_at: new Date() };
+    this.featureFlags.set(id, updated);
+    return updated;
+  }
+
+  async isFeatureEnabled(flagKey: string, userId?: string): Promise<boolean> {
+    const flag = Array.from(this.featureFlags.values()).find(f => f.flag_key === flagKey);
+    if (!flag || !flag.is_enabled) return false;
+    
+    // Simple percentage rollout logic
+    if (userId && flag.rollout_percentage && flag.rollout_percentage < 100) {
+      const hash = parseInt(userId.slice(-2), 16) || 0;
+      return (hash % 100) < flag.rollout_percentage;
+    }
+    
+    return true;
+  }
+
+  async getExperimentVariant(experimentKey: string, userId: string): Promise<string> {
+    // Simple A/B testing logic - return variant based on user ID hash
+    const hash = parseInt(userId.slice(-2), 16) || 0;
+    return hash % 2 === 0 ? 'control' : 'treatment';
+  }
+
+  // KYC & Limits methods
+  async getKycVerification(userId: string): Promise<KycVerification | undefined> {
+    return Array.from(this.kycVerifications.values()).find(k => k.user_id === userId);
+  }
+
+  async createKycVerification(kyc: any): Promise<KycVerification> {
+    const id = randomUUID();
+    const kycObj: KycVerification = {
+      ...kyc,
+      id,
+      created_at: new Date()
+    };
+    this.kycVerifications.set(id, kycObj);
+    return kycObj;
+  }
+
+  async updateKycVerification(id: string, updates: any): Promise<KycVerification | undefined> {
+    const kyc = this.kycVerifications.get(id);
+    if (!kyc) return undefined;
+    const updated = { ...kyc, ...updates };
+    if (updates.verification_status === 'verified') {
+      updated.verified_at = new Date();
+    }
+    this.kycVerifications.set(id, updated);
+    return updated;
+  }
+
+  async getUserLimits(userId: string): Promise<any[]> {
+    return Array.from(this.userLimits.values()).filter(limit => limit.user_id === userId);
+  }
+
+  async updateUserLimit(userId: string, limitType: string, usage: number): Promise<void> {
+    const limitKey = `${userId}-${limitType}`;
+    const existingLimit = this.userLimits.get(limitKey);
+    if (existingLimit) {
+      existingLimit.current_usage = usage.toString();
+      this.userLimits.set(limitKey, existingLimit);
+    }
+  }
+
+  // OTP system methods
+  async createOtpCode(otp: any): Promise<OtpCode> {
+    const id = randomUUID();
+    const otpObj: OtpCode = {
+      ...otp,
+      id,
+      created_at: new Date()
+    };
+    this.otpCodes.set(id, otpObj);
+    return otpObj;
+  }
+
+  async verifyOtpCode(phone: string, code: string, purpose: string): Promise<boolean> {
+    const otp = Array.from(this.otpCodes.values()).find(o => 
+      o.phone === phone && o.code === code && o.purpose === purpose && !o.is_verified
+    );
+    
+    if (!otp || new Date() > new Date(otp.expires_at)) {
+      return false;
+    }
+
+    otp.is_verified = true;
+    this.otpCodes.set(otp.id, otp);
+    return true;
+  }
+
+  async incrementOtpAttempts(id: string): Promise<void> {
+    const otp = this.otpCodes.get(id);
+    if (otp) {
+      otp.attempts = (otp.attempts || 0) + 1;
+      this.otpCodes.set(id, otp);
+    }
+  }
+
+  // Analytics methods
+  async trackAnalyticsEvent(event: any): Promise<AnalyticsEvent> {
+    const id = randomUUID();
+    const eventObj: AnalyticsEvent = {
+      ...event,
+      id,
+      created_at: new Date()
+    };
+    this.analyticsEvents.set(id, eventObj);
+    return eventObj;
+  }
+
+  async getAnalyticsEvents(userId?: string, eventName?: string): Promise<AnalyticsEvent[]> {
+    let events = Array.from(this.analyticsEvents.values());
+    
+    if (userId) {
+      events = events.filter(e => e.user_id === userId);
+    }
+    
+    if (eventName) {
+      events = events.filter(e => e.event_name === eventName);
+    }
+    
+    return events.sort((a, b) => b.created_at!.getTime() - a.created_at!.getTime());
+  }
+
+  // PWA Offline methods
+  async addToOfflineOutbox(item: any): Promise<OfflineOutbox> {
+    const id = randomUUID();
+    const outboxItem: OfflineOutbox = {
+      ...item,
+      id,
+      created_at: new Date()
+    };
+    this.offlineOutbox.set(id, outboxItem);
+    return outboxItem;
+  }
+
+  async getOfflineOutbox(userId: string): Promise<OfflineOutbox[]> {
+    return Array.from(this.offlineOutbox.values())
+      .filter(item => item.user_id === userId && item.status === 'pending')
+      .sort((a, b) => a.created_at!.getTime() - b.created_at!.getTime());
+  }
+
+  async markOfflineItemSynced(id: string): Promise<void> {
+    const item = this.offlineOutbox.get(id);
+    if (item) {
+      item.status = 'synced';
+      item.synced_at = new Date();
+      this.offlineOutbox.set(id, item);
+    }
   }
 }
 

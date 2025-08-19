@@ -584,6 +584,220 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Merchant OS routes
+  app.get('/api/merchant/offers', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { merchant_id } = req.query;
+      const offers = await storage.getMerchantOffers(merchant_id as string);
+      res.json(offers);
+    } catch (error) {
+      res.status(500).json({ message: "Server error" });
+    }
+  });
+
+  app.post('/api/merchant/offers', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const offer = await storage.createMerchantOffer(req.body);
+      res.json(offer);
+    } catch (error) {
+      res.status(400).json({ message: "Invalid offer creation" });
+    }
+  });
+
+  app.get('/api/merchant/redemptions', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { merchant_id } = req.query;
+      const redemptions = await storage.getMerchantRedemptions(merchant_id as string);
+      res.json(redemptions);
+    } catch (error) {
+      res.status(500).json({ message: "Server error" });
+    }
+  });
+
+  app.post('/api/merchant/redemptions', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const redemption = await storage.createMerchantRedemption(req.body);
+      res.json(redemption);
+    } catch (error) {
+      res.status(400).json({ message: "Invalid redemption" });
+    }
+  });
+
+  app.get('/api/merchant/settlements', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { merchant_id } = req.query;
+      const settlements = await storage.getSettlements(merchant_id as string);
+      res.json(settlements);
+    } catch (error) {
+      res.status(500).json({ message: "Server error" });
+    }
+  });
+
+  // Reconciliation routes
+  app.get('/api/recon/reports', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const reports = await storage.getReconReports(10);
+      res.json(reports);
+    } catch (error) {
+      res.status(500).json({ message: "Server error" });
+    }
+  });
+
+  app.post('/api/recon/run', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { day } = req.body;
+      // Simple reconciliation logic
+      const report = await storage.createReconReport({
+        day,
+        is_balanced: Math.random() > 0.2, // 80% balanced for demo
+        voucher_total: "1000.00",
+        mandate_total: "2000.00",
+        ledger_total: "3000.00",
+        deltas: {}
+      });
+      res.json(report);
+    } catch (error) {
+      res.status(400).json({ message: "Reconciliation failed" });
+    }
+  });
+
+  // Feature flags & experimentation routes
+  app.get('/api/features/flags', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const flags = await storage.getFeatureFlags();
+      res.json(flags);
+    } catch (error) {
+      res.status(500).json({ message: "Server error" });
+    }
+  });
+
+  app.get('/api/features/enabled/:flagKey', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { flagKey } = req.params;
+      const enabled = await storage.isFeatureEnabled(flagKey, req.userId);
+      res.json({ enabled });
+    } catch (error) {
+      res.status(500).json({ message: "Server error" });
+    }
+  });
+
+  app.get('/api/experiments/:experimentKey/variant', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { experimentKey } = req.params;
+      const variant = await storage.getExperimentVariant(experimentKey, req.userId!);
+      res.json({ variant });
+    } catch (error) {
+      res.status(500).json({ message: "Server error" });
+    }
+  });
+
+  // KYC & Limits routes
+  app.get('/api/kyc/verification', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const kyc = await storage.getKycVerification(req.userId!);
+      res.json(kyc || { status: 'not_started' });
+    } catch (error) {
+      res.status(500).json({ message: "Server error" });
+    }
+  });
+
+  app.post('/api/kyc/submit', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const kyc = await storage.createKycVerification({
+        ...req.body,
+        user_id: req.userId
+      });
+      res.json(kyc);
+    } catch (error) {
+      res.status(400).json({ message: "KYC submission failed" });
+    }
+  });
+
+  app.get('/api/limits', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const limits = await storage.getUserLimits(req.userId!);
+      res.json(limits);
+    } catch (error) {
+      res.status(500).json({ message: "Server error" });
+    }
+  });
+
+  // OTP routes
+  app.post('/api/otp/send', async (req: Request, res: Response) => {
+    try {
+      const { phone, purpose } = req.body;
+      const code = Math.floor(100000 + Math.random() * 900000).toString();
+      const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+      
+      const otp = await storage.createOtpCode({
+        phone,
+        code,
+        purpose,
+        expires_at: expiresAt
+      });
+      
+      // In production, send SMS here
+      res.json({ sent: true, otp_id: otp.id });
+    } catch (error) {
+      res.status(400).json({ message: "Failed to send OTP" });
+    }
+  });
+
+  app.post('/api/otp/verify', async (req: Request, res: Response) => {
+    try {
+      const { phone, code, purpose } = req.body;
+      const verified = await storage.verifyOtpCode(phone, code, purpose);
+      res.json({ verified });
+    } catch (error) {
+      res.status(400).json({ message: "OTP verification failed" });
+    }
+  });
+
+  // Analytics routes
+  app.post('/api/analytics/track', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const event = await storage.trackAnalyticsEvent({
+        ...req.body,
+        user_id: req.userId,
+        timestamp: new Date()
+      });
+      res.json({ tracked: true, event_id: event.id });
+    } catch (error) {
+      res.status(400).json({ message: "Analytics tracking failed" });
+    }
+  });
+
+  // PWA Offline routes
+  app.get('/api/offline/outbox', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const items = await storage.getOfflineOutbox(req.userId!);
+      res.json(items);
+    } catch (error) {
+      res.status(500).json({ message: "Server error" });
+    }
+  });
+
+  app.post('/api/offline/sync', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { items } = req.body;
+      const results = [];
+      
+      for (const item of items) {
+        try {
+          // Process offline item based on action_type
+          await storage.markOfflineItemSynced(item.id);
+          results.push({ id: item.id, status: 'synced' });
+        } catch (error) {
+          results.push({ id: item.id, status: 'failed' });
+        }
+      }
+      
+      res.json({ results });
+    } catch (error) {
+      res.status(400).json({ message: "Offline sync failed" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

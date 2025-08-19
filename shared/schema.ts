@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, jsonb, timestamp, decimal, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, jsonb, timestamp, date, decimal, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -200,6 +200,160 @@ export const nudges_events = pgTable("nudges_events", {
   created_at: timestamp("created_at").defaultNow(),
 });
 
+// Merchant OS tables
+export const merchant_offers = pgTable("merchant_offers", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  merchant_id: varchar("merchant_id").references(() => merchants.id),
+  label: text("label").notNull(),
+  description: text("description"),
+  cap_price_per_head: decimal("cap_price_per_head", { precision: 10, scale: 2 }).notNull(),
+  window_start: text("window_start").notNull(),
+  window_end: text("window_end").notNull(),
+  days_of_week: jsonb("days_of_week").notNull(), // JSON array [0,1,2,3,4,5,6]
+  is_active: boolean("is_active").default(true),
+  terms: text("terms"),
+  max_redemptions_per_day: integer("max_redemptions_per_day"),
+  created_at: timestamp("created_at").defaultNow(),
+  updated_at: timestamp("updated_at").defaultNow(),
+});
+
+export const merchant_redemptions = pgTable("merchant_redemptions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  merchant_id: varchar("merchant_id").references(() => merchants.id),
+  user_id: varchar("user_id").references(() => users.id),
+  plan_id: varchar("plan_id").references(() => plans.id),
+  voucher_id: varchar("voucher_id").references(() => vouchers.id),
+  mandate_id: varchar("mandate_id").references(() => mandates.id),
+  offer_id: varchar("offer_id").references(() => merchant_offers.id),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  original_amount: decimal("original_amount", { precision: 10, scale: 2 }),
+  discount_amount: decimal("discount_amount", { precision: 10, scale: 2 }),
+  payment_method: text("payment_method").notNull(),
+  status: text("status").notNull(), // redeemed, refunded, disputed
+  metadata: jsonb("metadata"),
+  redeemed_at: timestamp("redeemed_at").defaultNow(),
+  created_at: timestamp("created_at").defaultNow(),
+});
+
+export const merchant_flags = pgTable("merchant_flags", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  merchant_id: varchar("merchant_id").references(() => merchants.id),
+  redemption_id: varchar("redemption_id").references(() => merchant_redemptions.id),
+  flag_type: text("flag_type").notNull(),
+  description: text("description"),
+  status: text("status").default("pending"),
+  created_by: varchar("created_by").references(() => users.id),
+  created_at: timestamp("created_at").defaultNow(),
+});
+
+export const settlements = pgTable("settlements", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  merchant_id: varchar("merchant_id").references(() => merchants.id),
+  settlement_date: date("settlement_date").notNull(),
+  gross_amount: decimal("gross_amount", { precision: 10, scale: 2 }).notNull(),
+  commission: decimal("commission", { precision: 10, scale: 2 }).notNull(),
+  tax_amount: decimal("tax_amount", { precision: 10, scale: 2 }).notNull(),
+  net_amount: decimal("net_amount", { precision: 10, scale: 2 }).notNull(),
+  status: text("status").default("pending"), // pending, processed, failed
+  processed_at: timestamp("processed_at"),
+  reference_number: text("reference_number"),
+  created_at: timestamp("created_at").defaultNow(),
+});
+
+// Reconciliation tables
+export const recon_reports = pgTable("recon_reports", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  day: date("day").notNull(),
+  is_balanced: boolean("is_balanced").notNull(),
+  voucher_total: decimal("voucher_total", { precision: 10, scale: 2 }).notNull(),
+  mandate_total: decimal("mandate_total", { precision: 10, scale: 2 }).notNull(),
+  ledger_total: decimal("ledger_total", { precision: 10, scale: 2 }).notNull(),
+  deltas: jsonb("deltas"),
+  created_at: timestamp("created_at").defaultNow(),
+});
+
+// Feature flags & experimentation
+export const feature_flags = pgTable("feature_flags", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  flag_key: text("flag_key").notNull().unique(),
+  name: text("name").notNull(),
+  description: text("description"),
+  is_enabled: boolean("is_enabled").default(false),
+  rollout_percentage: integer("rollout_percentage").default(0),
+  targeting_rules: jsonb("targeting_rules"),
+  created_at: timestamp("created_at").defaultNow(),
+  updated_at: timestamp("updated_at").defaultNow(),
+});
+
+export const experiment_assignments = pgTable("experiment_assignments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  user_id: varchar("user_id").references(() => users.id),
+  experiment_key: text("experiment_key").notNull(),
+  variant: text("variant").notNull(),
+  assigned_at: timestamp("assigned_at").defaultNow(),
+});
+
+// KYC & Limits
+export const kyc_verifications = pgTable("kyc_verifications", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  user_id: varchar("user_id").references(() => users.id),
+  kyc_level: text("kyc_level").notNull(), // basic, plus, premium
+  name: text("name"),
+  date_of_birth: date("date_of_birth"),
+  document_type: text("document_type"),
+  document_number: text("document_number"),
+  document_url: text("document_url"),
+  verification_status: text("verification_status").default("pending"),
+  verified_at: timestamp("verified_at"),
+  created_at: timestamp("created_at").defaultNow(),
+});
+
+export const user_limits = pgTable("user_limits", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  user_id: varchar("user_id").references(() => users.id),
+  limit_type: text("limit_type").notNull(), // daily_swap, monthly_spend
+  current_usage: decimal("current_usage", { precision: 10, scale: 2 }).default("0"),
+  limit_amount: decimal("limit_amount", { precision: 10, scale: 2 }).notNull(),
+  reset_period: text("reset_period").notNull(), // daily, monthly
+  last_reset: timestamp("last_reset").defaultNow(),
+  created_at: timestamp("created_at").defaultNow(),
+});
+
+// OTP system
+export const otp_codes = pgTable("otp_codes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  phone: text("phone").notNull(),
+  code: text("code").notNull(),
+  purpose: text("purpose").notNull(), // login, kyc_upgrade
+  attempts: integer("attempts").default(0),
+  is_verified: boolean("is_verified").default(false),
+  expires_at: timestamp("expires_at").notNull(),
+  created_at: timestamp("created_at").defaultNow(),
+});
+
+// Analytics events
+export const analytics_events = pgTable("analytics_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  user_id: varchar("user_id").references(() => users.id),
+  session_id: text("session_id"),
+  event_name: text("event_name").notNull(),
+  properties: jsonb("properties"),
+  timestamp: timestamp("timestamp").notNull(),
+  created_at: timestamp("created_at").defaultNow(),
+});
+
+// PWA offline outbox
+export const offline_outbox = pgTable("offline_outbox", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  user_id: varchar("user_id").references(() => users.id),
+  action_type: text("action_type").notNull(),
+  payload: jsonb("payload").notNull(),
+  status: text("status").default("pending"), // pending, synced, failed
+  retry_count: integer("retry_count").default(0),
+  created_at: timestamp("created_at").defaultNow(),
+  synced_at: timestamp("synced_at"),
+});
+
 // Insert schemas
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
@@ -258,6 +412,54 @@ export const insertNudgesEventSchema = createInsertSchema(nudges_events).omit({
   created_at: true,
 });
 
+export const insertMerchantOfferSchema = createInsertSchema(merchant_offers).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export const insertMerchantRedemptionSchema = createInsertSchema(merchant_redemptions).omit({
+  id: true,
+  created_at: true,
+  redeemed_at: true,
+});
+
+export const insertMerchantFlagSchema = createInsertSchema(merchant_flags).omit({
+  id: true,
+  created_at: true,
+});
+
+export const insertSettlementSchema = createInsertSchema(settlements).omit({
+  id: true,
+  created_at: true,
+});
+
+export const insertFeatureFlagSchema = createInsertSchema(feature_flags).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export const insertKycVerificationSchema = createInsertSchema(kyc_verifications).omit({
+  id: true,
+  created_at: true,
+});
+
+export const insertOtpCodeSchema = createInsertSchema(otp_codes).omit({
+  id: true,
+  created_at: true,
+});
+
+export const insertAnalyticsEventSchema = createInsertSchema(analytics_events).omit({
+  id: true,
+  created_at: true,
+});
+
+export const insertOfflineOutboxSchema = createInsertSchema(offline_outbox).omit({
+  id: true,
+  created_at: true,
+});
+
 // Types
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
@@ -286,3 +488,25 @@ export type NudgesArm = typeof nudges_arms.$inferSelect;
 export type InsertNudgesArm = z.infer<typeof insertNudgesArmSchema>;
 export type NudgesEvent = typeof nudges_events.$inferSelect;
 export type InsertNudgesEvent = z.infer<typeof insertNudgesEventSchema>;
+
+export type MerchantOffer = typeof merchant_offers.$inferSelect;
+export type InsertMerchantOffer = z.infer<typeof insertMerchantOfferSchema>;
+export type MerchantRedemption = typeof merchant_redemptions.$inferSelect;
+export type InsertMerchantRedemption = z.infer<typeof insertMerchantRedemptionSchema>;
+export type MerchantFlag = typeof merchant_flags.$inferSelect;
+export type InsertMerchantFlag = z.infer<typeof insertMerchantFlagSchema>;
+export type Settlement = typeof settlements.$inferSelect;
+export type InsertSettlement = z.infer<typeof insertSettlementSchema>;
+export type ReconReport = typeof recon_reports.$inferSelect;
+export type FeatureFlag = typeof feature_flags.$inferSelect;
+export type InsertFeatureFlag = z.infer<typeof insertFeatureFlagSchema>;
+export type ExperimentAssignment = typeof experiment_assignments.$inferSelect;
+export type KycVerification = typeof kyc_verifications.$inferSelect;
+export type InsertKycVerification = z.infer<typeof insertKycVerificationSchema>;
+export type UserLimit = typeof user_limits.$inferSelect;
+export type OtpCode = typeof otp_codes.$inferSelect;
+export type InsertOtpCode = z.infer<typeof insertOtpCodeSchema>;
+export type AnalyticsEvent = typeof analytics_events.$inferSelect;
+export type InsertAnalyticsEvent = z.infer<typeof insertAnalyticsEventSchema>;
+export type OfflineOutbox = typeof offline_outbox.$inferSelect;
+export type InsertOfflineOutbox = z.infer<typeof insertOfflineOutboxSchema>;
