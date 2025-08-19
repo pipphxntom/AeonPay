@@ -3,6 +3,7 @@ import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 
 const app = express();
+app.set('trust proxy', true); // Trust Replit proxy for rate limiting
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
@@ -46,6 +47,11 @@ app.use((req, res, next) => {
   }
 
   const server = await registerRoutes(app);
+  
+  // Setup realtime transport
+  const { realtimeManager } = await import('./services/realtime');
+  realtimeManager.setupWebSocket(server);
+  realtimeManager.setupSSE(app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

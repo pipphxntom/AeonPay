@@ -1,0 +1,83 @@
+Extend the AeonPay monorepo with realtime updates (WS/SSE), invites/referrals, localization (en-IN / hi-IN / Hinglish), payments provider plug-ins (mock + switchable), QR→merchant mapping, campus map & search, and notifications—all Replit-friendly (SQLite + no paid services). Keep the SF Pro/system font, gradient mesh, glass cards, Framer Motion polish, bottom nav. Do not break existing APIs; only extend.
+
+1) Realtime transport (WS + SSE fallback)
+
+Backend: add ws.py using FastAPI websockets, channel topics: plan:{id}, swap:{id}, merchant:{id}. Broadcast events on voucher redemption, mandate execution, guardrail outcome, swap state changes.
+
+Add SSE fallback at GET /rt/stream that subscribes to user’s active topics (auth required). Use heartbeat every 20s. Gate by feature flag rt_transport='ws'|'sse'.
+
+Frontend: useRealtime() hook that auto-connects WS → falls back to SSE; exposes subscribe(topic, handler) and publish() for local dev.
+
+2) QR → Merchant mapping + search
+
+Backend: merchant_mapper module to parse generic UPI QR (VPA, PN, MCC guess) → merchant_id. Persist mapping in merchant_aliases(vpa, merchant_id, seen_count,last_seen_at). Endpoint POST /merchants/resolve returns canonical merchant_id (+confidence).
+
+Frontend: in Scanner, on scan call /merchants/resolve; show merchant card with name, “Cap Deals,” distance. Provide manual override “Not this place?” → search list (client-side fuzzy search on /merchants).
+
+3) Provider plug-in architecture (payments)
+
+Create /backend/services/payments/providers.py with interfaces: VoucherProvider, MandateProvider, UPIProvider. Implement MockVoucher, MockMandate. Stub an external AggregatorUPI adapter (no secret keys required in dev; just a placeholder with consistent responses).
+
+Add PAYMENTS_PROVIDER_CONFIG in config: VOUCHERS=mock, MANDATES=mock, UPI=mock. All redeem/execute paths route via provider registry. Keep idempotency & ledger invariant.
+
+Webhooks: add /webhooks/upi + /webhooks/mandate (dev-mock) with signature check stub, idempotent confirm, and topic broadcast on success.
+
+4) Invites & referrals
+
+DB: referrals(code, inviter_user_id, created_at, reward_state), plan_invites(plan_id, invitee_phone_hash, code, state).
+
+Backend endpoints: POST /referrals/create, GET /referrals/mine, POST /plans/:id/invite (generates deep link aeonpay://plan/:id/reserve?code=XXXX), POST /invites/redeem.
+
+Frontend: share sheet with OS share; when opened via deep link, auto-prefill ReserveCapsSheet and attribute referral. Add simple rewards: show “Campus Karma +1” (points only; no ₹).
+
+Abuse controls: limit 20 invites/day, velocity per IP/device, mark fraud if high bounce.
+
+5) Localization & copy system
+
+Add i18n with i18next + JSON namespaces: common, guardrail, coach, swap. Languages: en-IN, hi-IN, and ‘hiHinglish’ (Latin script Hinglish). Detect via device locale; allow manual switch in Me.
+
+All nudges fetched from /ai/nudge should respect Accept-Language header; update nudge arms to hold per-locale copy variants; default to Hinglish for Gen-Z with fallback to en-IN.
+
+Number/currency formatting: use Intl.NumberFormat('en-IN'). Always show ₹ with non-breaking space ₹ 200.
+
+6) Notifications
+
+PWA in-app notifications: broadcast events to useRealtime() → enqueue toast() with CTA (e.g., “Riya reserved ₹300; plan ready 🎉”).
+
+Web Push (best-effort): service worker subscribes with VAPID; add VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY in backend env (optional). If no keys present, feature flag disables push and falls back to in-app toasts.
+
+Notification preferences in Me (toggles per event type: plan ready, guardrail, swap matched).
+
+7) Campus map, Cap-Deals & search
+
+Backend: add /campus/map returns merchants with lat/lng, categories, live Cap-Deal badge.
+
+Frontend: lightweight map (no external tiles; use SVG schematic): campus zones, plot merchants; filters (canteen/chai/pizza, deals).
+
+Merchant detail modal: show Cap-Deal copy, busy hours (from redemption histogram), “Pay now” shortcut opens Scanner.
+
+8) Growth levers
+
+Add “Tap to Copy” referral code, and “Invite via WhatsApp” (deep link). Track events referral_copy, referral_share, invite_redeem.
+
+Add Ambassador profile (if is_ambassador): shows credited plan creations and redemptions; no cash payouts, only points.
+
+9) Performance + perceived smoothness
+
+Preload critical screens (Dashboard, Pay) after idle, preconnect to /rt.
+
+Skeleton loaders for Plans and Swap lists; motion transitions <220ms with prefers-reduced-motion honored.
+
+10) Acceptance tests
+
+WS/SSE updates Plan progress without manual refresh.
+
+QR resolve picks correct merchant then PaymentIntentSheet opens; manual override works.
+
+Invite link opens ReserveCaps prefilled and attributes referral.
+
+Locale switch changes guardrail copy (Hinglish shows).
+
+Push disabled gracefully when VAPID not set; in-app toasts still show.
+
+Update README with: realtime flags, provider config, i18n usage, invites/referrals, and push keys. Print a DEV CHECKLIST to console with test deep links and WS/SSE status.”

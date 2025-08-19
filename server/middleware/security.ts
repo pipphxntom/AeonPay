@@ -4,7 +4,7 @@ import { Request, Response, NextFunction } from 'express';
 import { createHash } from 'crypto';
 import UAParser from 'ua-parser-js';
 
-// Rate limiting configurations
+// Rate limiting configurations for Replit environment
 export const authRateLimit = rateLimit({
   windowMs: 60 * 1000, // 1 minute
   max: 5, // 5 requests per minute

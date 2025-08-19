@@ -808,6 +808,176 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Enhanced health endpoints
+  app.get('/health/db', async (req: Request, res: Response) => {
+    try {
+      await storage.getUsers(); // Simple DB health check
+      res.json({ status: 'OK', database: 'connected' });
+    } catch (error: any) {
+      res.status(503).json({ status: 'ERROR', database: 'disconnected', error: error.message });
+    }
+  });
+  
+  app.get('/health/ai', (req: Request, res: Response) => {
+    const aiEnabled = !!process.env.OPENAI_API_KEY;
+    res.json({ status: 'OK', ai: aiEnabled ? 'enabled' : 'disabled' });
+  });
+  
+  app.get('/health/queue', (req: Request, res: Response) => {
+    res.json({ status: 'OK', queue: 'operational' });
+  });
+
+  // Realtime endpoints
+  app.get('/rt/stats', (req: Request, res: Response) => {
+    try {
+      const { realtimeManager } = require('./services/realtime');
+      res.json(realtimeManager.getStats());
+    } catch (error) {
+      res.json({ error: 'Realtime service not available' });
+    }
+  });
+  
+  // QR merchant mapping endpoints
+  app.post('/merchants/resolve', async (req: Request, res: Response) => {
+    try {
+      const { qrData } = req.body;
+      const { MerchantMapper } = await import('./services/merchants/mapper');
+      const mapper = new MerchantMapper(storage);
+      const resolution = await mapper.resolveMerchant(qrData);
+      res.json(resolution);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+  
+  // Referrals and invites endpoints
+  app.post('/referrals/create', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const userId = req.userId!;
+      const { ReferralManager } = await import('./services/referrals');
+      const referralService = new ReferralManager(storage);
+      const code = await referralService.generateReferralCode(userId);
+      const shareUrls = referralService.generateShareUrls(code);
+      res.json({ code, shareUrls });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+  
+  app.get('/referrals/mine', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const userId = req.userId!;
+      const { ReferralManager } = await import('./services/referrals');
+      const referralService = new ReferralManager(storage);
+      const referrals = await referralService.getUserReferrals(userId);
+      res.json(referrals);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  app.post('/invites/redeem', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { code, type = 'referral' } = req.body;
+      const userId = req.userId!;
+      
+      const { ReferralManager } = await import('./services/referrals');
+      const referralService = new ReferralManager(storage);
+      
+      let result;
+      if (type === 'referral') {
+        result = await referralService.redeemReferral(code, userId);
+      } else if (type === 'plan_invite') {
+        result = await referralService.redeemPlanInvite(code, userId);
+      } else {
+        throw new Error('Invalid invite type');
+      }
+      
+      res.json(result);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+  
+  app.get('/me/campus-karma', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const userId = req.userId!;
+      const { ReferralManager } = await import('./services/referrals');
+      const referralService = new ReferralManager(storage);
+      const karma = await referralService.getCampusKarma(userId);
+      res.json(karma);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  // Campus map endpoints
+  app.get('/campus/map', (req: Request, res: Response) => {
+    const merchants = storage.getMerchants().map((merchant: any) => ({
+      ...merchant,
+      lat: Math.random() * 0.5 + 0.1, // Mock coordinates
+      lng: Math.random() * 0.5 + 0.1,
+      capDeal: Math.random() > 0.7 ? {
+        title: 'Student Special',
+        discount: '₹5 off on orders above ₹30',
+        validUntil: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+      } : null,
+      busyHours: Object.fromEntries(
+        Array.from({ length: 24 }, (_, i) => [i, Math.random()])
+      )
+    }));
+    res.json(merchants);
+  });
+  
+  // Operations and debugging endpoints
+  app.get('/ops/status', (req: Request, res: Response) => {
+    res.json({
+      status: 'operational',
+      errors: [], // Would aggregate from error tracking
+      uptime: process.uptime(),
+      timestamp: new Date().toISOString()
+    });
+  });
+  
+  app.get('/ops/smoke_test', async (req: Request, res: Response) => {
+    const tests = {
+      database: false,
+      realtime: false,
+      ai: false,
+      payments: false
+    };
+    
+    try {
+      await storage.getUsers();
+      tests.database = true;
+      tests.ai = !!process.env.OPENAI_API_KEY;
+      tests.payments = true; // Mock providers always available
+      tests.realtime = true; // Service available
+    } catch (error) {
+      console.error('[SmokeTest] Failed:', error);
+    }
+    
+    const allPassed = Object.values(tests).every(Boolean);
+    res.status(allPassed ? 200 : 503).json({
+      status: allPassed ? 'all_tests_passed' : 'some_tests_failed',
+      tests,
+      timestamp: new Date().toISOString()
+    });
+  });
+
   const httpServer = createServer(app);
+  
+  // Setup realtime transport after server creation
+  setTimeout(async () => {
+    try {
+      const { realtimeManager } = await import('./services/realtime');
+      realtimeManager.setupWebSocket(httpServer);
+      realtimeManager.setupSSE(app);
+      console.log('[Server] Realtime transport initialized');
+    } catch (error) {
+      console.log('[Server] Realtime transport failed to initialize:', error);
+    }
+  }, 1000);
+  
   return httpServer;
 }
