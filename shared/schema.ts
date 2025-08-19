@@ -128,6 +128,78 @@ export const idempotent_requests = pgTable("idempotent_requests", {
   created_at: timestamp("created_at").defaultNow(),
 });
 
+// Swaps table
+export const swaps = pgTable("swaps", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  mode: text("mode").notNull(), // 'peer' | 'merchant'
+  direction: text("direction").notNull(), // 'cash_to_upi' | 'upi_to_cash'
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  state: text("state").notNull().default("open"), // 'open' | 'matched' | 'paid' | 'confirmed' | 'disputed'
+  location_latlng: text("location_latlng"), // "lat,lng"
+  created_by: varchar("created_by").references(() => users.id),
+  matched_with: varchar("matched_with").references(() => users.id),
+  swap_code: varchar("swap_code"), // For handshake
+  created_at: timestamp("created_at").defaultNow(),
+});
+
+// Swap events table
+export const swap_events = pgTable("swap_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  swap_id: varchar("swap_id").references(() => swaps.id),
+  event: text("event").notNull(),
+  meta: jsonb("meta"),
+  created_at: timestamp("created_at").defaultNow(),
+});
+
+// Partners table (merchant swap partners)
+export const partners = pgTable("partners", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  location_latlng: text("location_latlng"),
+  upi_id: text("upi_id"),
+  incentive_amount: decimal("incentive_amount", { precision: 10, scale: 2 }),
+});
+
+// UPI ATMs table
+export const upi_atms = pgTable("upi_atms", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  location_latlng: text("location_latlng").notNull(),
+  provider: text("provider").notNull(),
+  address: text("address"),
+});
+
+// Privacy events table
+export const privacy_events = pgTable("privacy_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  user_id: varchar("user_id").references(() => users.id),
+  field: text("field").notNull(),
+  purpose: text("purpose").notNull(),
+  created_at: timestamp("created_at").defaultNow(),
+});
+
+// Nudges arms table (A/B testing for AI nudges)
+export const nudges_arms = pgTable("nudges_arms", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  event_type: text("event_type").notNull(),
+  arm_key: text("arm_key").notNull().unique(),
+  copy_text: text("copy_text").notNull(),
+  cta_text: text("cta_text"),
+  active: boolean("active").default(true),
+  rewards_sum: decimal("rewards_sum", { precision: 10, scale: 2 }).default("0"),
+  trials_count: integer("trials_count").default(0),
+});
+
+// Nudges events table (tracking outcomes)
+export const nudges_events = pgTable("nudges_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  arm_key: text("arm_key").references(() => nudges_arms.arm_key),
+  context: jsonb("context"),
+  outcome: text("outcome"), // 'shown', 'clicked', 'cancelled', 'swapped'
+  reward: decimal("reward", { precision: 10, scale: 2 }),
+  created_at: timestamp("created_at").defaultNow(),
+});
+
 // Insert schemas
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
@@ -154,6 +226,38 @@ export const insertTransactionSchema = createInsertSchema(transactions).omit({
   created_at: true,
 });
 
+export const insertSwapSchema = createInsertSchema(swaps).omit({
+  id: true,
+  created_at: true,
+});
+
+export const insertSwapEventSchema = createInsertSchema(swap_events).omit({
+  id: true,
+  created_at: true,
+});
+
+export const insertPartnerSchema = createInsertSchema(partners).omit({
+  id: true,
+});
+
+export const insertUpiAtmSchema = createInsertSchema(upi_atms).omit({
+  id: true,
+});
+
+export const insertPrivacyEventSchema = createInsertSchema(privacy_events).omit({
+  id: true,
+  created_at: true,
+});
+
+export const insertNudgesArmSchema = createInsertSchema(nudges_arms).omit({
+  id: true,
+});
+
+export const insertNudgesEventSchema = createInsertSchema(nudges_events).omit({
+  id: true,
+  created_at: true,
+});
+
 // Types
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
@@ -168,3 +272,17 @@ export type InsertTransaction = z.infer<typeof insertTransactionSchema>;
 export type Merchant = typeof merchants.$inferSelect;
 export type Campus = typeof campuses.$inferSelect;
 export type PlanMember = typeof plan_members.$inferSelect;
+export type Swap = typeof swaps.$inferSelect;
+export type InsertSwap = z.infer<typeof insertSwapSchema>;
+export type SwapEvent = typeof swap_events.$inferSelect;
+export type InsertSwapEvent = z.infer<typeof insertSwapEventSchema>;
+export type Partner = typeof partners.$inferSelect;
+export type InsertPartner = z.infer<typeof insertPartnerSchema>;
+export type UpiAtm = typeof upi_atms.$inferSelect;
+export type InsertUpiAtm = z.infer<typeof insertUpiAtmSchema>;
+export type PrivacyEvent = typeof privacy_events.$inferSelect;
+export type InsertPrivacyEvent = z.infer<typeof insertPrivacyEventSchema>;
+export type NudgesArm = typeof nudges_arms.$inferSelect;
+export type InsertNudgesArm = z.infer<typeof insertNudgesArmSchema>;
+export type NudgesEvent = typeof nudges_events.$inferSelect;
+export type InsertNudgesEvent = z.infer<typeof insertNudgesEventSchema>;

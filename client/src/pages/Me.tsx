@@ -8,11 +8,13 @@ import {
   ChevronRight,
   User as UserIcon,
   Phone,
-  Mail
+  Mail,
+  Shield
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth, useLogout } from '@/lib/auth';
 import { useToast } from '@/hooks/use-toast';
+import { Link } from 'wouter';
 
 interface MenuItem {
   id: string;
@@ -57,6 +59,13 @@ export default function Me() {
       description: 'Manage your notification preferences',
       icon: Bell,
       action: () => handleFeatureClick('Notifications'),
+    },
+    {
+      id: 'privacy',
+      label: 'Privacy Ledger',
+      description: 'Track your data sharing and privacy events',
+      icon: Shield,
+      action: () => window.location.href = '/privacy',
     },
     {
       id: 'settings',

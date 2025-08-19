@@ -10,6 +10,7 @@ import Pay from "@/pages/Pay";
 import Plans from "@/pages/Plans";
 import Swap from "@/pages/Swap";
 import Me from "@/pages/Me";
+import Privacy from "@/pages/Privacy";
 import Login from "@/pages/Login";
 import NotFound from "@/pages/not-found";
 
@@ -18,6 +19,7 @@ import CreatePlanModal from "@/components/CreatePlanModal";
 import ReserveCapsSheet from "@/components/ReserveCapsSheet";
 import PaymentIntentSheet from "@/components/PaymentIntentSheet";
 import GuardrailDialog from "@/components/GuardrailDialog";
+import { CoachDrawer } from "@/components/CoachDrawer";
 
 function AuthenticatedApp() {
   return (
@@ -27,6 +29,7 @@ function AuthenticatedApp() {
         <Route path="/pay" component={Pay} />
         <Route path="/plans" component={Plans} />
         <Route path="/swap" component={Swap} />
+        <Route path="/privacy" component={Privacy} />
         <Route path="/me" component={Me} />
         <Route component={NotFound} />
       </Switch>
@@ -35,6 +38,7 @@ function AuthenticatedApp() {
       <ReserveCapsSheet />
       <PaymentIntentSheet />
       <GuardrailDialog />
+      <CoachDrawer />
     </AppShell>
   );
 }

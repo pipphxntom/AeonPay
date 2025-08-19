@@ -1,4 +1,4 @@
-import { type User, type InsertUser, type Plan, type InsertPlan, type Merchant, type Campus, type Voucher, type Mandate, type Transaction } from "@shared/schema";
+import { type User, type InsertUser, type Plan, type InsertPlan, type Merchant, type Campus, type Voucher, type Mandate, type Transaction, type Swap, type SwapEvent, type Partner, type UpiAtm, type PrivacyEvent, type NudgesArm, type NudgesEvent } from "@shared/schema";
 import { randomUUID } from "crypto";
 
 export interface IStorage {
@@ -34,6 +34,26 @@ export interface IStorage {
   // Idempotency
   checkIdempotency(key: string): Promise<any>;
   storeIdempotentResponse(key: string, response: any): Promise<void>;
+
+  // SwapHub
+  createSwap(swap: any): Promise<Swap>;
+  getSwapMatches(near: string, direction: string): Promise<Swap[]>;
+  updateSwap(id: string, updates: any): Promise<Swap | undefined>;
+  createSwapEvent(event: any): Promise<SwapEvent>;
+  
+  // Partners & UPI ATMs
+  getPartners(): Promise<Partner[]>;
+  getUpiAtms(near?: string): Promise<UpiAtm[]>;
+  
+  // Privacy
+  logPrivacyEvent(event: any): Promise<PrivacyEvent>;
+  getPrivacyEvents(userId: string, limit?: number): Promise<PrivacyEvent[]>;
+  
+  // AI Nudges
+  getNudgeArms(eventType: string): Promise<NudgesArm[]>;
+  createNudgeArm(arm: any): Promise<NudgesArm>;
+  recordNudgeEvent(event: any): Promise<NudgesEvent>;
+  updateNudgeArmStats(armKey: string, reward: number): Promise<void>;
 }
 
 export class MemStorage implements IStorage {
@@ -46,6 +66,13 @@ export class MemStorage implements IStorage {
   private transactions: Map<string, Transaction> = new Map();
   private planMembers: Map<string, any> = new Map();
   private idempotentRequests: Map<string, any> = new Map();
+  private swaps: Map<string, Swap> = new Map();
+  private swapEvents: Map<string, SwapEvent> = new Map();
+  private partners: Map<string, Partner> = new Map();
+  private upiAtms: Map<string, UpiAtm> = new Map();
+  private privacyEvents: Map<string, PrivacyEvent> = new Map();
+  private nudgeArms: Map<string, NudgesArm> = new Map();
+  private nudgeEvents: Map<string, NudgesEvent> = new Map();
 
   constructor() {
     this.seedData();
@@ -147,6 +174,30 @@ export class MemStorage implements IStorage {
         state: "active",
         joined_at: new Date(),
       });
+    });
+
+    // Seed partners for merchant swap
+    const partnersData = [
+      { id: "partner-1", name: "QuickMart Central", location_latlng: "28.6139,77.2090", upi_id: "quickmart@paytm", incentive_amount: "10.00" },
+      { id: "partner-2", name: "Campus Convenience", location_latlng: "28.6145,77.2095", upi_id: "campus@gpay", incentive_amount: "15.00" },
+      { id: "partner-3", name: "Food Court Express", location_latlng: "28.6135,77.2085", upi_id: "foodcourt@phonepe", incentive_amount: "12.00" },
+    ];
+
+    partnersData.forEach(partner => {
+      this.partners.set(partner.id, partner);
+    });
+
+    // Seed UPI ATMs
+    const upiAtmsData = [
+      { id: "atm-1", name: "HDFC Bank ATM", location_latlng: "28.6140,77.2088", provider: "HDFC Bank", address: "Main Campus Gate" },
+      { id: "atm-2", name: "ICICI UPI ATM", location_latlng: "28.6142,77.2092", provider: "ICICI Bank", address: "Library Block" },
+      { id: "atm-3", name: "SBI Quick Cash", location_latlng: "28.6138,77.2086", provider: "State Bank of India", address: "Cafeteria Building" },
+      { id: "atm-4", name: "Axis Bank ATM", location_latlng: "28.6144,77.2094", provider: "Axis Bank", address: "Student Center" },
+      { id: "atm-5", name: "PNB UPI Point", location_latlng: "28.6136,77.2084", provider: "Punjab National Bank", address: "Administrative Block" },
+    ];
+
+    upiAtmsData.forEach(atm => {
+      this.upiAtms.set(atm.id, atm);
     });
   }
 
@@ -289,6 +340,114 @@ export class MemStorage implements IStorage {
       response_data: response,
       created_at: new Date(),
     });
+  }
+
+  // SwapHub methods
+  async createSwap(swap: any): Promise<Swap> {
+    const id = randomUUID();
+    const swapObj: Swap = { 
+      ...swap, 
+      id, 
+      created_at: new Date() 
+    };
+    this.swaps.set(id, swapObj);
+    return swapObj;
+  }
+
+  async getSwapMatches(near: string, direction: string): Promise<Swap[]> {
+    return Array.from(this.swaps.values()).filter(
+      swap => swap.direction === direction && swap.state === "open"
+    );
+  }
+
+  async updateSwap(id: string, updates: any): Promise<Swap | undefined> {
+    const swap = this.swaps.get(id);
+    if (!swap) return undefined;
+    
+    const updatedSwap = { ...swap, ...updates };
+    this.swaps.set(id, updatedSwap);
+    return updatedSwap;
+  }
+
+  async createSwapEvent(event: any): Promise<SwapEvent> {
+    const id = randomUUID();
+    const eventObj: SwapEvent = { 
+      ...event, 
+      id, 
+      created_at: new Date() 
+    };
+    this.swapEvents.set(id, eventObj);
+    return eventObj;
+  }
+
+  // Partners & UPI ATMs methods
+  async getPartners(): Promise<Partner[]> {
+    return Array.from(this.partners.values());
+  }
+
+  async getUpiAtms(near?: string): Promise<UpiAtm[]> {
+    // For simplicity, return all ATMs (in real implementation would filter by location)
+    return Array.from(this.upiAtms.values());
+  }
+
+  // Privacy methods
+  async logPrivacyEvent(event: any): Promise<PrivacyEvent> {
+    const id = randomUUID();
+    const eventObj: PrivacyEvent = { 
+      ...event, 
+      id, 
+      created_at: new Date() 
+    };
+    this.privacyEvents.set(id, eventObj);
+    return eventObj;
+  }
+
+  async getPrivacyEvents(userId: string, limit: number = 30): Promise<PrivacyEvent[]> {
+    return Array.from(this.privacyEvents.values())
+      .filter(event => event.user_id === userId)
+      .sort((a, b) => b.created_at!.getTime() - a.created_at!.getTime())
+      .slice(0, limit);
+  }
+
+  // AI Nudges methods
+  async getNudgeArms(eventType: string): Promise<NudgesArm[]> {
+    return Array.from(this.nudgeArms.values()).filter(
+      arm => arm.event_type === eventType && arm.active
+    );
+  }
+
+  async createNudgeArm(arm: any): Promise<NudgesArm> {
+    const id = randomUUID();
+    const armObj: NudgesArm = { ...arm, id };
+    this.nudgeArms.set(arm.arm_key, armObj);
+    return armObj;
+  }
+
+  async recordNudgeEvent(event: any): Promise<NudgesEvent> {
+    const id = randomUUID();
+    const eventObj: NudgesEvent = { 
+      ...event, 
+      id, 
+      created_at: new Date() 
+    };
+    this.nudgeEvents.set(id, eventObj);
+    return eventObj;
+  }
+
+  async updateNudgeArmStats(armKey: string, reward: number): Promise<void> {
+    const arm = this.nudgeArms.get(armKey);
+    if (!arm) return;
+
+    const currentRewardSum = parseFloat(arm.rewards_sum?.toString() || "0");
+    const currentTrials = arm.trials_count || 0;
+
+    const updatedArm = {
+      ...arm,
+      rewards_sum: (currentRewardSum + reward).toString() as any,
+      trials_count: currentTrials + 1
+    };
+
+    this.nudgeArms.set(armKey, updatedArm);
   }
 }
 

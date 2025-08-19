@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { AlertTriangle, Plus, Minus, ArrowRight } from 'lucide-react';
+import { AlertTriangle, Plus, Minus, ArrowRight, Bot } from 'lucide-react';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { useAppStore } from '@/lib/store';
 import { useToast } from '@/hooks/use-toast';
+import { useNudges } from '@/hooks/use-nudges';
 
 export default function GuardrailDialog() {
   const { 
@@ -15,13 +16,28 @@ export default function GuardrailDialog() {
   } = useAppStore();
   
   const { toast } = useToast();
+  const { getNudge, recordOutcome } = useNudges();
   const [countdown, setCountdown] = useState(5);
   const [isActive, setIsActive] = useState(false);
+  const [nudgeData, setNudgeData] = useState<{ variant_id: string; text: string; cta?: string } | null>(null);
 
   useEffect(() => {
     if (isGuardrailDialogOpen) {
       setCountdown(5);
       setIsActive(true);
+      
+      // Get AI nudge for over-cap event
+      const fetchNudge = async () => {
+        const nudge = await getNudge('over_cap', {
+          amount: paymentAmount,
+          over_by: overCapAmount
+        });
+        if (nudge) {
+          setNudgeData(nudge);
+        }
+      };
+      
+      fetchNudge();
       
       const timer = setInterval(() => {
         setCountdown((prev) => {
@@ -40,9 +56,13 @@ export default function GuardrailDialog() {
         setIsActive(false);
       };
     }
-  }, [isGuardrailDialogOpen]);
+  }, [isGuardrailDialogOpen, paymentAmount, getNudge]);
 
   const handleAddFunds = () => {
+    if (nudgeData) {
+      recordOutcome(nudgeData.variant_id, 'clicked');
+    }
+    
     toast({
       title: "Top-up Required",
       description: "This feature will be available in Part-B.",
@@ -52,6 +72,10 @@ export default function GuardrailDialog() {
   };
 
   const handleTrimAmount = () => {
+    if (nudgeData) {
+      recordOutcome(nudgeData.variant_id, 'clicked');
+    }
+    
     const newAmount = Math.max(0, paymentAmount - 50);
     setPaymentAmount(newAmount);
     
@@ -83,9 +107,24 @@ export default function GuardrailDialog() {
           </div>
           
           <h2 className="text-xl font-bold text-white mb-2">Over Budget Alert</h2>
-          <p className="text-white/80 mb-6">
+          <p className="text-white/80 mb-4">
             Over cap by ₹{overCapAmount} — add ₹50 each or trim?
           </p>
+          
+          {/* AI Nudge */}
+          {nudgeData && (
+            <div className="glass-card bg-purple-500/10 border-purple-400/20 p-3 mb-4 rounded-xl">
+              <div className="flex items-start space-x-2">
+                <Bot className="w-4 h-4 text-purple-400 mt-0.5 flex-shrink-0" />
+                <div className="text-left">
+                  <p className="text-white/90 text-sm">{nudgeData.text}</p>
+                  {nudgeData.cta && (
+                    <p className="text-purple-300 text-xs mt-1 font-medium">{nudgeData.cta}</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
           
           {/* Countdown Timer */}
           <div className="relative w-20 h-20 mx-auto mb-6">

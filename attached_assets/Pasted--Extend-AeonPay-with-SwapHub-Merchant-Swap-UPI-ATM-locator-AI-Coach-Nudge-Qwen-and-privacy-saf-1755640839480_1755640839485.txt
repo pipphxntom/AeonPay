@@ -1,0 +1,67 @@
+“Extend AeonPay with SwapHub, Merchant Swap, UPI-ATM locator, AI Coach/Nudge (Qwen), and privacy/safety.
+
+Backend
+
+New tables: swaps(id, mode['peer'|'merchant'], direction['cash_to_upi'|'upi_to_cash'], amount, state['open'|'matched'|'paid'|'confirmed'|'disputed'], location_latlng, created_by, matched_with), swap_events(swap_id,event,meta), partners(id,name,location_latlng,upitime), upi_atms(id,name,location_latlng,provider), privacy_events(user_id, field, purpose, created_at), nudges_arms(event_type, arm_key, copy_text, active), nudges_events(arm_key, context, outcome).
+
+Endpoints:
+
+SwapHub: POST /swap/create, GET /swap/matches?near=lat,lng&dir=cash_to_upi, POST /swap/accept, POST /swap/handshake (generate SwapCode), POST /swap/confirm (payer UPI callback verified), POST /swap/dispute, limits: ₹2,000/day.
+
+Merchant Swap: GET /swap/partners, POST /swap/partner_confirm.
+
+UPI-ATM: GET /swap/upi_atms?near=… (seed static list).
+
+AI:
+
+POST /ai/coach {message, campus_id} → tool-calls allowed: create_plan, mint_vouchers, create_mandates, suggest_merchants, trim_suggestions.
+
+POST /ai/nudge {event_type, context} → returns {variant_id,text,cta} using Thompson sampling across nudges_arms.
+
+POST /ai/nudge/outcome {variant_id, clicked, cancelled, swapped} → reward = cancel:1, swap:0.7, click:0.3.
+
+Privacy: POST /privacy/log {fields, purpose} (appends to privacy_events), GET /privacy/events.
+
+AI provider abstraction services/ai/providers.py: MockCoach (rules) + OpenAICompatible (env: OPENAI_BASE_URL, OPENAI_API_KEY, QWEN_MODEL=qwen2.5-7b-instruct).
+
+PII Redaction before AI: replace names/phones/VPAs with tokens; schema-validate tool outputs; reject direct fund moves outside tools.
+
+Frontend
+
+Swap page full build:
+
+Tabs: Peer | Merchant | UPI-ATM.
+
+Peer: two tiles (Cash→UPI, UPI→Cash). Flow = amount → list of matches (distance, trust score) → TwoWayQR modal → states: “UPI received, hand over cash” → confirm. Dispute button soft-locks both.
+
+Merchant: show partner list, tap → instructions and in-app log; tiny incentive badge.
+
+UPI-ATM: map/list of nearby machines with directions (use static list now).
+
+CoachDrawer: chat bubbles; quick chips: “Plan ₹300/head”, “Add ₹50 each”, “Find canteen deals”; POST to /ai/coach; when actions[] arrive, open the right sheet (CreatePlan, ReserveCaps, Guardrail) and render a top banner “AI prepared this plan”.
+
+Nudges: useNudges() hook; GuardrailDialog fetches /ai/nudge → shows returned copy; on user choice call /ai/nudge/outcome.
+
+Privacy ledger page in Me: show last 30 days of fields exposed to AI (mostly tokens), export/delete buttons (frontend-only stub).
+
+Safety rails: show “Public spot recommended” tooltip for peer swaps, daytime badges, velocity warnings.
+
+Security & limits
+
+Swap daily limit ₹2,000/user; device binding; location consent required; ban repeat abusers.
+
+Rate limits for /swap/* and /ai/*.
+
+All POSTs carry Idempotency-Key.
+
+Testing
+
+Backend: unit tests for swap handshake, UPI callback verification (mock), bandit arm update.
+
+Frontend (RTL/Cypress): Peer swap happy path, guardrail nudge outcome recorded, AI action opens ReserveCapsSheet.
+
+Analytics (print dashboard)
+
+Cap reservation→redemption funnel, overshoot prevention %, swap success/dispute %, merchant concentration, Lite top-up usage.
+
+Ship with README updates (env vars, demo scripts).”

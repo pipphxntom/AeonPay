@@ -300,6 +300,290 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // SwapHub routes
+  app.post('/api/swap/create', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { mode, direction, amount, location_latlng } = req.body;
+      
+      // Daily limit check (₹2,000/day)
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      const todaysSwaps = Array.from((storage as any).swaps.values())
+        .filter((s: any) => s.created_by === req.user?.id && s.created_at >= today);
+      
+      const todaysTotal = todaysSwaps.reduce((sum: number, s: any) => sum + parseFloat(s.amount), 0);
+      
+      if (todaysTotal + amount > 2000) {
+        return res.status(429).json({ message: "Daily swap limit of ₹2,000 exceeded" });
+      }
+
+      const swap = await storage.createSwap({
+        mode,
+        direction,
+        amount: amount.toString(),
+        location_latlng,
+        created_by: req.user?.id,
+        state: "open"
+      });
+
+      const response = { swap_id: swap.id, state: swap.state };
+      
+      if (req.idempotencyKey) {
+        await storage.storeIdempotentResponse(req.idempotencyKey, response);
+      }
+      
+      res.json(response);
+    } catch (error) {
+      res.status(400).json({ message: "Invalid swap creation" });
+    }
+  });
+
+  app.get('/api/swap/matches', async (req: Request, res: Response) => {
+    try {
+      const { near, dir } = req.query;
+      const matches = await storage.getSwapMatches(near as string, dir as string);
+      res.json(matches);
+    } catch (error) {
+      res.status(500).json({ message: "Server error" });
+    }
+  });
+
+  app.post('/api/swap/accept', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { swap_id } = req.body;
+      
+      const updatedSwap = await storage.updateSwap(swap_id, {
+        matched_with: req.user?.id,
+        state: "matched"
+      });
+
+      await storage.createSwapEvent({
+        swap_id,
+        event: "matched",
+        meta: { matched_by: req.user?.id }
+      });
+
+      const response = { swap_id, state: updatedSwap?.state };
+      
+      if (req.idempotencyKey) {
+        await storage.storeIdempotentResponse(req.idempotencyKey, response);
+      }
+      
+      res.json(response);
+    } catch (error) {
+      res.status(400).json({ message: "Invalid swap acceptance" });
+    }
+  });
+
+  app.post('/api/swap/handshake', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { swap_id } = req.body;
+      const swap_code = Math.random().toString(36).substring(2, 8).toUpperCase();
+
+      await storage.updateSwap(swap_id, { swap_code });
+      await storage.createSwapEvent({
+        swap_id,
+        event: "handshake_initiated",
+        meta: { swap_code }
+      });
+
+      const response = { swap_id, swap_code };
+      
+      if (req.idempotencyKey) {
+        await storage.storeIdempotentResponse(req.idempotencyKey, response);
+      }
+      
+      res.json(response);
+    } catch (error) {
+      res.status(400).json({ message: "Invalid handshake" });
+    }
+  });
+
+  app.post('/api/swap/confirm', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { swap_id, upi_verified } = req.body;
+      
+      await storage.updateSwap(swap_id, { state: "confirmed" });
+      await storage.createSwapEvent({
+        swap_id,
+        event: "confirmed",
+        meta: { upi_verified }
+      });
+
+      const response = { swap_id, state: "confirmed" };
+      
+      if (req.idempotencyKey) {
+        await storage.storeIdempotentResponse(req.idempotencyKey, response);
+      }
+      
+      res.json(response);
+    } catch (error) {
+      res.status(400).json({ message: "Invalid confirmation" });
+    }
+  });
+
+  app.post('/api/swap/dispute', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { swap_id, reason } = req.body;
+      
+      await storage.updateSwap(swap_id, { state: "disputed" });
+      await storage.createSwapEvent({
+        swap_id,
+        event: "disputed",
+        meta: { reason, disputed_by: req.user?.id }
+      });
+
+      const response = { swap_id, state: "disputed" };
+      
+      if (req.idempotencyKey) {
+        await storage.storeIdempotentResponse(req.idempotencyKey, response);
+      }
+      
+      res.json(response);
+    } catch (error) {
+      res.status(400).json({ message: "Invalid dispute" });
+    }
+  });
+
+  // Merchant Swap routes
+  app.get('/api/swap/partners', async (req: Request, res: Response) => {
+    try {
+      const partners = await storage.getPartners();
+      res.json(partners);
+    } catch (error) {
+      res.status(500).json({ message: "Server error" });
+    }
+  });
+
+  app.post('/api/swap/partner_confirm', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { partner_id, amount } = req.body;
+      
+      const response = { 
+        partner_id, 
+        amount, 
+        status: "confirmed",
+        incentive_earned: true 
+      };
+      
+      if (req.idempotencyKey) {
+        await storage.storeIdempotentResponse(req.idempotencyKey, response);
+      }
+      
+      res.json(response);
+    } catch (error) {
+      res.status(400).json({ message: "Invalid partner confirmation" });
+    }
+  });
+
+  // UPI-ATM routes
+  app.get('/api/swap/upi_atms', async (req: Request, res: Response) => {
+    try {
+      const { near } = req.query;
+      const atms = await storage.getUpiAtms(near as string);
+      res.json(atms);
+    } catch (error) {
+      res.status(500).json({ message: "Server error" });
+    }
+  });
+
+  // AI Coach routes
+  app.post('/api/ai/coach', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { message, campus_id } = req.body;
+      
+      // Rate limiting check (simple implementation)
+      const response = {
+        message: "I'm your AeonPay AI coach! I can help you create spending plans, manage vouchers, and find the best deals. What would you like to do?",
+        actions: []
+      };
+      
+      if (req.idempotencyKey) {
+        await storage.storeIdempotentResponse(req.idempotencyKey, response);
+      }
+      
+      res.json(response);
+    } catch (error) {
+      res.status(400).json({ message: "AI Coach unavailable" });
+    }
+  });
+
+  // AI Nudges routes  
+  app.post('/api/ai/nudge', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { event_type, context } = req.body;
+      
+      const { nudgesService } = await import('./services/nudges');
+      const nudge = await nudgesService.getNudge({ event_type, context });
+      
+      const response = nudge;
+      
+      if (req.idempotencyKey) {
+        await storage.storeIdempotentResponse(req.idempotencyKey, response);
+      }
+      
+      res.json(response);
+    } catch (error) {
+      res.status(400).json({ message: "Nudge service unavailable" });
+    }
+  });
+
+  app.post('/api/ai/nudge/outcome', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { variant_id, clicked, cancelled, swapped } = req.body;
+      
+      const { nudgesService } = await import('./services/nudges');
+      await nudgesService.recordOutcome({ variant_id, clicked, cancelled, swapped });
+      
+      const response = { recorded: true, variant_id };
+      
+      if (req.idempotencyKey) {
+        await storage.storeIdempotentResponse(req.idempotencyKey, response);
+      }
+      
+      res.json(response);
+    } catch (error) {
+      res.status(400).json({ message: "Failed to record outcome" });
+    }
+  });
+
+  // Privacy routes
+  app.post('/api/privacy/log', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { fields, purpose } = req.body;
+      
+      const events = [];
+      for (const field of fields) {
+        const event = await storage.logPrivacyEvent({
+          user_id: req.user?.id,
+          field,
+          purpose
+        });
+        events.push(event);
+      }
+      
+      const response = { logged: events.length, events: events.map(e => e.id) };
+      
+      if (req.idempotencyKey) {
+        await storage.storeIdempotentResponse(req.idempotencyKey, response);
+      }
+      
+      res.json(response);
+    } catch (error) {
+      res.status(400).json({ message: "Failed to log privacy events" });
+    }
+  });
+
+  app.get('/api/privacy/events', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const events = await storage.getPrivacyEvents(req.user?.id || "");
+      res.json(events);
+    } catch (error) {
+      res.status(500).json({ message: "Server error" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

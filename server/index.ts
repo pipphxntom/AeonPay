@@ -37,6 +37,14 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Initialize AI services
+  try {
+    const { seedDefaultNudges } = await import('./services/nudges');
+    await seedDefaultNudges();
+  } catch (error) {
+    console.error('Failed to seed nudges:', error);
+  }
+
   const server = await registerRoutes(app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
