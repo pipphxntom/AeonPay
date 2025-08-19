@@ -3,12 +3,14 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import jwt from "jsonwebtoken";
 import { z } from "zod";
+import { setupComprehensiveMiddleware, setupPrivacyRoutes, setupAdminRoutes, checkKillSwitch } from "./middleware/integration";
 
 const JWT_SECRET = process.env.JWT_SECRET || "aeonpay-secret-key";
 
 // Extend Request interface to include custom properties
 interface AuthenticatedRequest extends Request {
   userId?: string;
+  user?: { id: string; phone: string; name: string; email: string | null; avatar: string | null; created_at: Date | null; };
   idempotencyKey?: string;
 }
 
@@ -24,6 +26,11 @@ const authenticateToken = async (req: AuthenticatedRequest, res: Response, next:
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as any;
     req.userId = decoded.userId;
+    // Fetch user data for requests that need it
+    const user = await storage.getUser(decoded.userId);
+    if (user) {
+      req.user = user;
+    }
     next();
   } catch (error) {
     return res.status(403).json({ message: "Invalid token" });
@@ -47,6 +54,9 @@ const idempotencyMiddleware = async (req: AuthenticatedRequest, res: Response, n
 };
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Setup comprehensive security, privacy, and observability middleware
+  setupComprehensiveMiddleware(app, storage);
+  
   app.use(idempotencyMiddleware);
 
   // Auth routes
@@ -310,7 +320,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       today.setHours(0, 0, 0, 0);
       
       const todaysSwaps = Array.from((storage as any).swaps.values())
-        .filter((s: any) => s.created_by === req.user?.id && s.created_at >= today);
+        .filter((s: any) => s.created_by === req.userId && s.created_at >= today);
       
       const todaysTotal = todaysSwaps.reduce((sum: number, s: any) => sum + parseFloat(s.amount), 0);
       
@@ -323,7 +333,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         direction,
         amount: amount.toString(),
         location_latlng,
-        created_by: req.user?.id,
+        created_by: req.userId,
         state: "open"
       });
 
@@ -354,14 +364,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { swap_id } = req.body;
       
       const updatedSwap = await storage.updateSwap(swap_id, {
-        matched_with: req.user?.id,
+        matched_with: req.userId,
         state: "matched"
       });
 
       await storage.createSwapEvent({
         swap_id,
         event: "matched",
-        meta: { matched_by: req.user?.id }
+        meta: { matched_by: req.userId }
       });
 
       const response = { swap_id, state: updatedSwap?.state };
@@ -431,7 +441,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.createSwapEvent({
         swap_id,
         event: "disputed",
-        meta: { reason, disputed_by: req.user?.id }
+        meta: { reason, disputed_by: req.userId }
       });
 
       const response = { swap_id, state: "disputed" };
@@ -556,7 +566,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const events = [];
       for (const field of fields) {
         const event = await storage.logPrivacyEvent({
-          user_id: req.user?.id,
+          user_id: req.userId,
           field,
           purpose
         });
@@ -577,7 +587,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get('/api/privacy/events', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const events = await storage.getPrivacyEvents(req.user?.id || "");
+      const events = await storage.getPrivacyEvents(req.userId || "");
       res.json(events);
     } catch (error) {
       res.status(500).json({ message: "Server error" });

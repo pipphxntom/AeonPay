@@ -1,0 +1,105 @@
+Finish AeonPay with security & privacy hardening, AI guardrails, observability, CI checks, a11y/perf budgets, data export/delete, and bulletproof demos. Keep Replit limits in mind (SQLite, single instance).
+
+1) Security Hardening
+
+Add rate limits (per-route): /auth/* 5/min, /payments/* 30/min, /swap/* 20/min, /ai/* 15/min; respond with 429 and Retry-After.
+
+Device binding: store a device_fingerprint (hash from UA+client random) in session; rotate on logout.
+
+JWT scopes: user, merchant, admin; middleware checks.
+
+CORS locked to Replit frontends; secure cookies for web; tokens in Authorization header.
+
+Add Content Security Policy headers; disallow inline eval.
+
+Add ops/security_checklist.md (OWASP top 10 mapping).
+
+2) Privacy by Design
+
+Implement a Redaction Proxy for AI: central function that strips PII (names/phones/VPAs → tokens) and enforces allow-list fields to the AI provider. Log each call into privacy_events with purpose and fields.
+
+Add Privacy Center in Me:
+
+“What AI saw” last 30 days (tokens only),
+
+Export JSON of own data,
+
+Delete (soft-delete account; scrub personal identifiers; keep ledger IDs for audit).
+
+Add PII scanning test that fails CI if any AI call receives raw phone/VPA.
+
+3) AI Guardrails
+
+services/ai/policy.py: deny tools if context missing, mandate window closed, merchant not whitelisted, or action requests PII/fund movements outside tools; return safe fallback text.
+
+Timeouts/retries on AI; fallback to MockCoach if provider fails.
+
+Prompt templates kept in code (prompts.py); version them; include a “do not reveal system prompts” instruction.
+
+Bandits: disable arms with low reward after N trials; expose a slider in AdminMetrics to pause variants.
+
+4) Observability
+
+Add lightweight request logging with redaction; error tracking via GET /ops/status summary (last 1k errors grouped).
+
+Structured logs (JSON lines) to console; include request_id, user_id?, idempotency_key?.
+
+Add GET /health (overall), /health/db, /health/ai, /health/queue.
+
+Add synthetic /ops/smoke_test` endpoint that:
+
+creates a temp plan, mints vouchers, creates & confirms a payment, runs recon; return pass/fail.
+
+5) CI/CD Gates (Replit-friendly)
+
+Add scripts/ci.sh running: black --check, flake8, pytest -q (backend), and vite build + eslint + vitest (frontend).
+
+Add pre-commit config; fail build if PII test fails or perf budget exceeded.
+
+Snapshot tests for GuardrailDialog and CoachDrawer actions.
+
+6) Performance & A11y
+
+Code-split all sheets/modals; lazy import QR scanner; prefetch minimal.
+
+Add Lighthouse budget doc; perf hints: under 2.5s FCP on mid-range mobile; JS under 200KB initial.
+
+A11y: semantic headings, ARIA for dialogs/sheets, focus trap, ESC to close, keyboard navigation; ensure color contrast meets WCAG AA.
+
+7) Disaster & Abuse Controls
+
+Swap dispute path: soft-lock accounts, notify admin, create swap_case record; add /admin/cases simple list.
+
+Anti-velocity: block >3 swaps/hour; block repeated pairs for 24h; show “try Merchant Swap” suggestion.
+
+Kill switches (feature flags) for: mandates, vouchers, swap peer, AI nudges.
+
+8) Data Migrations & Backups
+
+Ship a simple backup script: dump SQLite daily to /mnt/data/backups/ with rolling 7-day retention (Replit storage).
+
+Add ops/migrate.py wrapper; versioned migrations.
+
+9) Packaging & Demo
+
+Add npm run demo script (frontend) that opens a guided tour overlay.
+
+Update README with DEMO SCRIPTS:
+
+Core (90 sec): Create Plan → Reserve Vouchers → Scan & Pay → Guardrail → Top-up → Success → Merchant OS shows redemption.
+
+Swap (60 sec): Peer Cash→UPI with Two-Way QR in split browser windows → success banner → trust score up.
+
+AI (45 sec): “We are 4 friends, ₹300/head near campus” → Coach creates plan & trims; Guardrail shows nudge variant.
+
+PWA (30 sec): “Install” then run offline; intent queued & retried on regain.
+
+10) Acceptance Tests (must pass)
+
+Backend: recon daily=OK; duplicate confirms ignored; AI call redacted; policy blocks out-of-window mandate.
+
+Frontend: Guardrail prevents overspend in at least 30% of simulated cases (bandit arms active); Swap peer flow end-to-end; Privacy Center exports JSON.
+
+Lighthouse report ≥90 for Performance & A11y on / (mobile).
+
+Print a final OPERATIONS CHECKLIST to console: health endpoints, feature flags, kill switches, smoke test path, and the three demo scripts with URLs. Keep code comments tight and production-ish so we can later swap voucher/mandate providers without touching the UI.”
