@@ -1,0 +1,75 @@
+Create a full-stack AeonPay monorepo in Replit with /backend (Python FastAPI + SQLite + SQLAlchemy + Pydantic + JWT), /frontend (React + Vite + Tailwind + Framer Motion + Zustand + React Router), and a top-level README.md with run instructions. Theme & UX: match the PPT style (gradient mesh, rounded glass cards, bold data callouts), SF Pro system-stack font (-apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", Inter, system-ui, sans-serif), sticky Bottom Nav (Home, Pay, Plans, Swap, Me). Gen-Z polish: spring animations, big tap targets, accessible focus rings, prefers-reduced-motion support.
+
+Backend requirements
+
+Auth: POST /auth/mock_login {phone} → JWT; middleware to load user.
+
+Idempotency: idempotent_requests table; reject duplicate keys; every write returns stable IDs.
+
+Data models: users, plans(id,name,cap_per_head,window_start,window_end,merchant_whitelist JSON,status), plan_members(plan_id,user_id,state), vouchers(id,plan_id,member_user_id,amount,merchant_list,expires_at,state), mandates(id,plan_id,member_user_id,cap_amount,valid_from,valid_to,state), voucher_redemptions, mandate_executions, transactions(id,intent_id,plan_id,merchant_id,amount,status), ledger_entries(id,txn_id,account,leg[debit|credit],amount,created_at).
+
+Endpoints:
+
+POST /plans (create plan + members + default cap/head + whitelist).
+
+POST /vouchers/mint (for each member, create voucher with merchant list & expiry).
+
+POST /vouchers/redeem (atomic redeem for an array of member vouchers; return partial failures).
+
+POST /mandates/create (create short-lived cap tokens per member; dev-mock).
+
+POST /mandates/execute (execute per-head debits; dev-mock success/fail).
+
+POST /payments/intent (amount, merchant_id, plan_id, mode:vouchers|mandates|split_later).
+
+POST /payments/confirm (intent_id, status, rrn_stub).
+
+GET /merchants?campus_id=… (seed 20 vendors).
+
+GET /me/plans, GET /plans/:id.
+
+Business logic: double-entry ledger per transaction; reconcile success only on confirm.
+
+Seeds: 3 campuses, 20 merchants each (canteen, chai, rolls, pizza), 8 demo users, 2 demo plans.
+
+Tests: Pytest for (1) idempotency, (2) voucher redeem splits into N legs correctly, (3) over-cap returns guardrail flag.
+
+Frontend requirements
+
+AppShell with gradient background and glass card container (max-width ~420px). Bottom nav (Home, Pay, Plans, Swap, Me).
+
+Home: Active Plans list (PotCard-style), “Create Plan” CTA (opens CreatePlanModal), Envelopes snapshot (static for now), Coach FAB (hidden for Part-A).
+
+CreatePlanModal: name, cap/head, time window (today default), merchant chips (from /merchants), invite picker (multi-select from seed users), Next → ReserveCapsSheet.
+
+ReserveCapsSheet: two tabs: Event Vouchers vs Cap Tokens. Default to vouchers. Tap Reserve → POST /vouchers/mint (or /mandates/create). Show “Reserved for 6–10pm.”
+
+Pay page:
+
+Plan Templates (Birthday ₹300/head, Movie ₹200, Trip ₹1,500) → prefill CreatePlanModal → ReserveCapsSheet.
+
+Scan QR card: camera permission with BarcodeDetector fallback → on QR or manual VPA entry open PaymentIntentSheet with mode selector (Vouchers/ Mandates/ Split Later).
+
+PaymentIntentSheet: amount, merchant preview, Pay button. On Pay → call /payments/intent; if response guardrail_required:true, open GuardrailDialog; else call /payments/confirm (dev-mock success) → show success toast + Receipt.
+
+GuardrailDialog (5-sec countdown): options [Add ₹50 each → open TopUpSheet (mock), Trim items (just reduce amount by 50 for now), Proceed].
+
+Plans page: list of all plans; tap → PlanDetails page (members + reserved state + “Scan & Pay” shortcut).
+
+Swap page (stub for now): two cards “Cash→UPI” and “UPI→Cash” (click → show ‘Coming in Part-B’).
+
+Global store (Zustand): auth, plans, merchants, intents, UI sheets.
+
+Theming: Tailwind tokens brand blue→mint gradient, glass card: backdrop-blur, translucent borders, rounded-2xl, soft shadows.
+
+Accessibility: 44px tap targets, focus rings, prefers-reduced-motion.
+
+Tests (RTL): Create Plan → Reserve Vouchers → Pay success; Guardrail triggers on over-cap.
+
+Copy & defaults (data-backed)
+
+Default caps drawn from survey: ₹200/₹300/₹400/head presets (median allowance ~₹5k → decisions happen in ₹50–₹300).
+
+Nudge phrasing (Hinglish): “Over cap by ₹180 — add ₹50 each or trim?”
+
+Finish by printing a DEV CHECKLIST in the console with routes, seeded users, and a 60-sec demo path (Create → Reserve → Scan & Pay → Guardrail).
